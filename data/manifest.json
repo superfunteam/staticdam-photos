@@ -725,5 +725,13 @@
     "bytes": 18905314,
     "isVideo": true,
     "duration": 36.96667
+  },
+  {
+    "path": "assets/Video/supplierone-plus-intro.mp4",
+    "w": 0,
+    "h": 0,
+    "bytes": 87190775,
+    "isVideo": true,
+    "duration": 68.266
   }
 ]
