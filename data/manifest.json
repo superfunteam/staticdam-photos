@@ -719,12 +719,28 @@
     "duration": 10.03334
   },
   {
+    "path": "assets/Video/supplierone-bump.mp4",
+    "w": 0,
+    "h": 0,
+    "bytes": 2248333,
+    "isVideo": true,
+    "duration": 3.566
+  },
+  {
     "path": "assets/Video/supplierone-intro.mp4",
     "w": 0,
     "h": 0,
     "bytes": 18905314,
     "isVideo": true,
     "duration": 36.96667
+  },
+  {
+    "path": "assets/Video/supplierone-logo-laptop-closing.mp4",
+    "w": 0,
+    "h": 0,
+    "bytes": 3892977,
+    "isVideo": true,
+    "duration": 10.03334
   },
   {
     "path": "assets/Video/supplierone-plus-intro.mp4",
