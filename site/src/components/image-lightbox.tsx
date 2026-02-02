@@ -479,7 +479,7 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
                     <div className="flex justify-between text-sm font-medium">
                       <dt className="text-gray-500 dark:text-gray-400">Frame</dt>
                       <dd className="text-gray-900 dark:text-white">
-                        {imageDimensions.width || image.w || 0} x {imageDimensions.height || image.h || 0}
+                        {imageDimensions.width || image.w || 0} × {imageDimensions.height || image.h || 0}
                       </dd>
                     </div>
                     <div className="flex justify-between text-sm font-medium">
