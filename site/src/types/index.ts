@@ -15,6 +15,7 @@ export interface ImageMetadata {
   hierarchical?: string[]
   duration?: number
   isVideo?: boolean
+  isPdf?: boolean
 }
 
 export interface EditPayload {

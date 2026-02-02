@@ -8,18 +8,25 @@ import { useFilter } from '@/components/app-sidebar'
 import { useSidebar } from '@/components/ui/sidebar'
 import { ImageLightbox } from '@/components/image-lightbox'
 import { MetadataEditor } from '@/components/metadata-editor'
-import { Check, Play } from 'lucide-react'
+import { Check, Play, FileText } from 'lucide-react'
 import type { ImageMetadata } from '@/types'
 
 // Utility function to get thumbnail path - memoized
 const getThumbnailPath = (imagePath: string): string => {
   // Convert assets/folder/image.jpg -> assets-thumbs/folder/image.jpg
   // For videos, use .webp extension for animated thumbnails
+  // For PDFs, use .jpg extension for thumbnail
   const pathWithoutExt = imagePath.replace(/\.[^/.]+$/, '')
   const isVideo = /\.(mp4|mov|webm|avi)$/i.test(imagePath)
+  const isPdf = /\.pdf$/i.test(imagePath)
   const ext = isVideo ? '.webp' : '.jpg'
   const thumbnailPath = pathWithoutExt.replace(/^assets\//, 'assets-thumbs/') + ext
   return `/${thumbnailPath}`
+}
+
+// Check if file is a PDF
+const isPdfFile = (imagePath: string): boolean => {
+  return /\.pdf$/i.test(imagePath)
 }
 
 // Memoized image grid item component
@@ -92,6 +99,14 @@ const ImageGridItem = memo(({ image, isSelected, onToggleSelect, onOpenLightbox 
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="bg-black dark:bg-white rounded-lg p-3">
               <Play className="h-6 w-6 text-white dark:text-black fill-white dark:fill-black" />
+            </div>
+          </div>
+        )}
+        {/* PDF icon overlay */}
+        {(image.isPdf || isPdfFile(image.path)) && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="bg-red-500 rounded-lg p-3">
+              <FileText className="h-6 w-6 text-white" />
             </div>
           </div>
         )}
@@ -314,7 +329,7 @@ export default function LibraryPage() {
 
   return (
     <>
-      <div className="grid auto-rows-min gap-4 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 auto-rows-min gap-4 md:grid-cols-3 lg:grid-cols-4">
         {filteredImages.map((image) => (
           <ImageGridItem
             key={image.path}

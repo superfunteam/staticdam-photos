@@ -56,12 +56,14 @@ jobs:
         run: pnpm run build:manifest
 
       - name: Commit changes if any
+        id: commit
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/manifest.json
           if git diff --staged --quiet; then
             echo "No changes to commit"
+            echo "changed=false" >> $GITHUB_OUTPUT
           else
             git stash --include-untracked
             git pull --rebase
@@ -69,4 +71,13 @@ jobs:
             git add data/manifest.json
             git commit -m "chore: update manifest.json [skip ci]" || echo "Nothing to commit"
             git push
+            echo "changed=true" >> $GITHUB_OUTPUT
           fi
+
+      - name: Trigger Netlify deploy
+        if: steps.commit.outputs.changed == 'true' && env.NETLIFY_BUILD_HOOK != ''
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          curl -X POST -d '{}' "$NETLIFY_BUILD_HOOK"
+          echo "Netlify deploy triggered"

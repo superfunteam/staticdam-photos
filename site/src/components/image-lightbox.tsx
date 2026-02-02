@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react'
-import { ChevronLeft, ChevronRight, Download, Tag, Camera, Hash, Loader2, User, Copy, Image, Package, Edit, Info } from 'lucide-react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { ChevronLeft, ChevronRight, Download, Tag, Camera, Hash, Loader2, User, Copy, Image, Package, Edit, Info, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -8,9 +8,20 @@ import {
   Sheet,
   SheetContent,
   SheetFooter,
-  SheetHeader,
+  SheetTitle,
+  SheetDescription,
 } from '@/components/ui/sheet'
 import type { ImageMetadata } from '@/types'
+import { PdfViewer } from './pdf-viewer'
+
+// Peel Logo Component
+const PeelLogo = ({ className }: { className?: string }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <path d="M13.5 8C13.5 11.0376 11.0376 13.5 8 13.5C4.96243 13.5 2.5 11.0376 2.5 8C2.5 4.96243 4.96243 2.5 8 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M8 2.5C8 2.5 10.5 4 10.5 8C10.5 12 8 13.5 8 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M13.5 5.5L11 8L13.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
 
 // StaticDAM Logo Component
 const StaticDAMLogo = ({ className }: { className?: string }) => (
@@ -40,12 +51,21 @@ interface ImageLightboxProps {
 export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEditMetadata, onFilterSelect }: ImageLightboxProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 })
+  const [loadProgress, setLoadProgress] = useState(0)
+  const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
+  const [sheetDragOffset, setSheetDragOffset] = useState(0)
+  const [isClosing, setIsClosing] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const imageContainerRef = useRef<HTMLDivElement>(null)
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null)
+  const sheetTouchStartRef = useRef<{ y: number; time: number } | null>(null)
   const currentIndex = images.findIndex(img => img.path === image.path)
   const hasPrev = currentIndex > 0
   const hasNext = currentIndex < images.length - 1
   const isVideo = image.isVideo || /\.(mp4|mov|webm|avi)$/i.test(image.path)
+  const isPdf = image.isPdf || /\.pdf$/i.test(image.path)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -71,7 +91,81 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
   useEffect(() => {
     setIsLoading(true)
     setImageDimensions({ width: 0, height: 0 })
+    setLoadProgress(0)
+
+    // Revoke previous blob URL to free memory
+    if (imageBlobUrl) {
+      URL.revokeObjectURL(imageBlobUrl)
+      setImageBlobUrl(null)
+    }
   }, [image.path])
+
+  // Stream large images with progress tracking
+  useEffect(() => {
+    const isVideo = image.isVideo || /\.(mp4|mov|webm|avi)$/i.test(image.path)
+    const isPdf = image.isPdf || /\.pdf$/i.test(image.path)
+
+    // Only stream for large images (over 500KB), skip for videos and PDFs
+    if (isVideo || isPdf || image.bytes < 500000) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const fetchWithProgress = async () => {
+      try {
+        const response = await fetch(`/${image.path}`, { signal: controller.signal })
+
+        if (!response.ok || !response.body) {
+          return
+        }
+
+        const contentLength = response.headers.get('content-length')
+        const total = contentLength ? parseInt(contentLength, 10) : image.bytes
+
+        const reader = response.body.getReader()
+        const chunks: Uint8Array[] = []
+        let received = 0
+
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) break
+
+          chunks.push(value)
+          received += value.length
+
+          if (total > 0) {
+            setLoadProgress(Math.round((received / total) * 100))
+          }
+        }
+
+        const blob = new Blob(chunks)
+        const url = URL.createObjectURL(blob)
+        setImageBlobUrl(url)
+      } catch (err) {
+        // Ignore abort errors
+        if (err instanceof Error && err.name !== 'AbortError') {
+          console.error('Error loading image with progress:', err)
+        }
+      }
+    }
+
+    fetchWithProgress()
+
+    return () => {
+      controller.abort()
+    }
+  }, [image.path, image.bytes, image.isVideo, image.isPdf])
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (imageBlobUrl) {
+        URL.revokeObjectURL(imageBlobUrl)
+      }
+    }
+  }, [imageBlobUrl])
 
   const handleDownload = () => {
     const link = document.createElement('a')
@@ -108,6 +202,7 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
   // Generate share URLs
   const damUrl = `${window.location.origin}/asset/${encodeURIComponent(image.path)}`
   const assetUrl = `${window.location.origin}/${image.path}`
+  const peelUrl = `https://banana.peel.diy/edit?img=${encodeURIComponent(assetUrl)}`
 
   // Copy to clipboard functionality
   const copyToClipboard = async (text: string, label: string) => {
@@ -130,27 +225,143 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
     }
   }
 
+  // Smooth close animation
+  const closeWithAnimation = useCallback(() => {
+    setIsClosing(true)
+    setTimeout(() => {
+      setIsClosing(false)
+      onClose()
+    }, 300)
+  }, [onClose])
+
+  // Touch handlers for image swipe navigation
+  const handleImageTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      time: Date.now()
+    }
+  }, [])
+
+  const handleImageTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current) return
+
+    const deltaX = e.touches[0].clientX - touchStartRef.current.x
+    const deltaY = Math.abs(e.touches[0].clientY - touchStartRef.current.y)
+
+    // Only swipe horizontally if not scrolling vertically
+    if (deltaY < 50) {
+      setSwipeOffset(deltaX)
+    }
+  }, [])
+
+  const handleImageTouchEnd = useCallback(() => {
+    if (!touchStartRef.current) return
+
+    const elapsed = Date.now() - touchStartRef.current.time
+    const velocity = Math.abs(swipeOffset) / elapsed
+
+    // Threshold: 50px or 0.3px/ms velocity
+    if (swipeOffset > 50 || (swipeOffset > 0 && velocity > 0.3)) {
+      if (hasPrev) onNavigate('prev')
+    } else if (swipeOffset < -50 || (swipeOffset < 0 && velocity > 0.3)) {
+      if (hasNext) onNavigate('next')
+    }
+
+    setSwipeOffset(0)
+    touchStartRef.current = null
+  }, [swipeOffset, hasPrev, hasNext, onNavigate])
+
+  // Touch handlers for bottom sheet drag-to-close
+  const handleSheetTouchStart = useCallback((e: React.TouchEvent) => {
+    sheetTouchStartRef.current = {
+      y: e.touches[0].clientY,
+      time: Date.now()
+    }
+  }, [])
+
+  const handleSheetTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!sheetTouchStartRef.current) return
+
+    const deltaY = e.touches[0].clientY - sheetTouchStartRef.current.y
+
+    // Only drag down
+    if (deltaY > 0) {
+      setSheetDragOffset(deltaY)
+    }
+  }, [])
+
+  const handleSheetTouchEnd = useCallback(() => {
+    if (!sheetTouchStartRef.current) return
+
+    // Close if dragged more than 100px down
+    if (sheetDragOffset > 100) {
+      closeWithAnimation()
+    }
+
+    setSheetDragOffset(0)
+    sheetTouchStartRef.current = null
+  }, [sheetDragOffset, closeWithAnimation])
+
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent
         className="inset-0 w-full max-w-full h-full p-0 border-none sm:max-w-full bg-transparent"
         side="right"
+        aria-describedby={undefined}
       >
-        <div className="flex h-full">
+        <SheetTitle className="sr-only">
+          {image.subject || fileName}
+        </SheetTitle>
+        <div className="flex flex-col md:flex-row h-full">
           {/* Image Area - No animation on container to prevent interference */}
-          <div className="flex-1 flex items-center justify-center p-4 relative">
+          <div
+            ref={imageContainerRef}
+            className="h-1/2 md:h-full flex-1 flex items-center justify-center p-4 relative"
+            onTouchStart={handleImageTouchStart}
+            onTouchMove={handleImageTouchMove}
+            onTouchEnd={handleImageTouchEnd}
+          >
+            {/* Mobile close button */}
+            <button
+              onClick={onClose}
+              className="md:hidden absolute top-4 right-4 z-20 p-2 bg-black/50 rounded-full text-white hover:bg-black/70 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
 
             {/* Main Media (Image or Video) */}
-            <div className="max-w-full max-h-full flex items-center justify-center relative">
+            <div
+              className="max-w-full max-h-full flex items-center justify-center relative"
+              style={{ transform: `translateX(${swipeOffset}px)`, transition: swipeOffset === 0 ? 'transform 0.2s' : 'none' }}
+            >
               {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="h-8 w-8 animate-spin text-white" />
-                    <span className="text-white text-sm">Loading {isVideo ? 'video' : 'image'}...</span>
+                    {!isVideo && image.bytes >= 500000 && loadProgress > 0 && loadProgress < 100 ? (
+                      <>
+                        <span className="text-white text-sm">{formatFileSize(image.bytes)}</span>
+                        <div className="w-48 h-2 bg-white/20 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-white transition-all duration-150"
+                            style={{ width: `${loadProgress}%` }}
+                          />
+                        </div>
+                        <span className="text-white text-sm">{loadProgress}%</span>
+                      </>
+                    ) : (
+                      <span className="text-white text-sm">Loading {isVideo ? 'video' : 'image'}...</span>
+                    )}
                   </div>
                 </div>
               )}
-              {isVideo ? (
+              {isPdf ? (
+                <PdfViewer
+                  src={`/${image.path}`}
+                  className="max-w-full max-h-full"
+                />
+              ) : isVideo ? (
                 <video
                   ref={videoRef}
                   src={`/${image.path}`}
@@ -173,7 +384,7 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
               ) : (
                 <img
                   ref={imgRef}
-                  src={`/${image.path}`}
+                  src={imageBlobUrl || `/${image.path}`}
                   alt={image.subject || fileName}
                   className={`max-w-full max-h-full object-contain ${
                     isLoading ? 'opacity-0' : 'opacity-100 animate-in fade-in slide-in-from-bottom-8 duration-500 fill-mode-both'
@@ -226,10 +437,26 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
             </div>
           </div>
 
-          {/* Metadata Sidebar */}
-          <div className="w-96 bg-white dark:bg-black flex flex-col animate-in slide-in-from-right duration-500">
+          {/* Metadata Sidebar / Bottom Sheet on Mobile */}
+          <div
+            className="h-1/2 md:h-full md:w-96 bg-white dark:bg-black flex flex-col animate-in slide-in-from-bottom md:slide-in-from-right duration-500 rounded-t-2xl md:rounded-none"
+            style={{
+              transform: isClosing ? 'translateY(100%)' : `translateY(${sheetDragOffset}px)`,
+              transition: isClosing ? 'transform 0.3s ease-out' : (sheetDragOffset === 0 ? 'transform 0.15s' : 'none')
+            }}
+          >
+            {/* Mobile drag handle */}
+            <div
+              className="md:hidden flex justify-center py-2 cursor-grab active:cursor-grabbing"
+              onTouchStart={handleSheetTouchStart}
+              onTouchMove={handleSheetTouchMove}
+              onTouchEnd={handleSheetTouchEnd}
+              onClick={closeWithAnimation}
+            >
+              <div className="w-12 h-1.5 bg-gray-300 dark:bg-gray-600 rounded-full" />
+            </div>
 
-            <div className="flex-1 px-6 py-6 overflow-y-auto">
+            <div className="flex-1 px-6 py-6 md:py-6 overflow-y-auto">
               <div>
                 {/* File Info */}
                 <div>
@@ -282,7 +509,7 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
                     <div className="flex items-center gap-2">
                       <StaticDAMLogo className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                       <span className="text-muted-foreground flex-shrink-0 w-10">DAM</span>
-                      <div className="relative flex-1">
+                      <div className="relative flex-1 min-w-0">
                         <input
                           type="text"
                           value={damUrl}
@@ -303,7 +530,7 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
                     <div className="flex items-center gap-2">
                       <Image className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                       <span className="text-muted-foreground flex-shrink-0 w-10">Asset</span>
-                      <div className="relative flex-1">
+                      <div className="relative flex-1 min-w-0">
                         <input
                           type="text"
                           value={assetUrl}
@@ -319,6 +546,29 @@ export function ImageLightbox({ image, images, isOpen, onClose, onNavigate, onEd
                         </button>
                       </div>
                     </div>
+
+                    {/* Peel - hidden for PDFs */}
+                    {!isPdf && (
+                      <div className="flex items-center gap-2">
+                        <PeelLogo className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-muted-foreground flex-shrink-0 w-10">Peel</span>
+                        <div className="relative flex-1 min-w-0">
+                          <input
+                            type="text"
+                            value={peelUrl}
+                            readOnly
+                            className="w-full px-2 pr-8 py-1 text-xs border rounded bg-muted/50 text-muted-foreground"
+                            onClick={(e) => e.currentTarget.select()}
+                          />
+                          <button
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition-colors"
+                            onClick={() => copyToClipboard(peelUrl, 'Peel URL')}
+                          >
+                            <Copy className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
