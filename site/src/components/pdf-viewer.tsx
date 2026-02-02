@@ -1,127 +1,202 @@
-import { useState, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
-import { Loader2, ChevronLeft, ChevronRight, FileText } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Loader2, FileText } from 'lucide-react'
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
 interface PdfViewerProps {
-  src: string
-  className?: string
+  url: string
 }
 
-export function PdfViewer({ src, className = '' }: PdfViewerProps) {
-  const [numPages, setNumPages] = useState<number | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageLoading, setPageLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [scale, setScale] = useState(1)
+interface PageStatus {
+  loaded: boolean
+  error: boolean
+}
 
-  const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
+export function PdfViewer({ url }: PdfViewerProps) {
+  const [numPages, setNumPages] = useState(0)
+  const [documentLoaded, setDocumentLoaded] = useState(false)
+  const [documentError, setDocumentError] = useState(false)
+  const [pageStatuses, setPageStatuses] = useState<Record<number, PageStatus>>({})
+  const [containerWidth, setContainerWidth] = useState(600) // Default width
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Track container width for responsive page sizing
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        const width = containerRef.current.clientWidth - 48
+        if (width > 0) {
+          setContainerWidth(width)
+        }
+      }
+    }
+    // Initial measurement after a short delay to ensure container is rendered
+    const timer = setTimeout(updateWidth, 50)
+    updateWidth()
+    window.addEventListener('resize', updateWidth)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', updateWidth)
+    }
+  }, [])
+
+  const handleDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
+    console.log(`PDF loaded: ${numPages} pages`)
     setNumPages(numPages)
-    setPageLoading(false)
+    setDocumentLoaded(true)
+    // Initialize all pages as not loaded
+    const initialStatuses: Record<number, PageStatus> = {}
+    for (let i = 1; i <= numPages; i++) {
+      initialStatuses[i] = { loaded: false, error: false }
+    }
+    setPageStatuses(initialStatuses)
   }, [])
 
-  const onDocumentLoadError = useCallback((error: Error) => {
-    console.error('Error loading PDF:', error)
-    setError('Failed to load PDF')
-    setPageLoading(false)
+  const handleDocumentLoadError = useCallback((error: Error) => {
+    console.error('PDF load error:', error)
+    setDocumentError(true)
   }, [])
 
-  const onPageLoadSuccess = useCallback(() => {
-    setPageLoading(false)
+  const handlePageLoadSuccess = useCallback((pageNumber: number) => {
+    console.log(`Page ${pageNumber} loaded`)
+    setPageStatuses(prev => ({
+      ...prev,
+      [pageNumber]: { loaded: true, error: false }
+    }))
   }, [])
 
-  const goToPrevPage = useCallback(() => {
-    setCurrentPage(prev => Math.max(1, prev - 1))
-    setPageLoading(true)
+  const handlePageLoadError = useCallback((pageNumber: number, error: Error) => {
+    console.error(`Page ${pageNumber} error:`, error)
+    setPageStatuses(prev => ({
+      ...prev,
+      [pageNumber]: { loaded: false, error: true }
+    }))
   }, [])
 
-  const goToNextPage = useCallback(() => {
-    setCurrentPage(prev => Math.min(numPages || prev, prev + 1))
-    setPageLoading(true)
-  }, [numPages])
+  // Calculate loading progress
+  const loadedPages = Object.values(pageStatuses).filter(s => s.loaded).length
+  const loadingProgress = numPages > 0 ? Math.round((loadedPages / numPages) * 100) : 0
+  const isStillLoading = documentLoaded && loadedPages < numPages
 
-  if (error) {
+  // Calculate page width - max 800px, responsive to container
+  const pageWidth = Math.min(containerWidth, 800)
+
+  if (documentError) {
     return (
-      <div className={`flex flex-col items-center justify-center gap-4 text-white ${className}`}>
-        <FileText className="h-16 w-16 text-gray-400" />
-        <p className="text-red-400">{error}</p>
+      <div className="flex flex-col items-center justify-center py-20 text-gray-500 gap-4">
+        <FileText className="h-12 w-12 text-gray-300" />
+        <p>Failed to load PDF</p>
       </div>
     )
   }
 
   return (
-    <div className={`flex flex-col items-center ${className}`}>
-      {/* PDF Document */}
-      <div className="relative max-h-full overflow-auto">
-        {pageLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="h-8 w-8 animate-spin text-white" />
-              <span className="text-white text-sm">
-                {numPages ? `Loading page ${currentPage}...` : 'Loading PDF...'}
-              </span>
+    <div ref={containerRef} className="w-full min-h-full flex flex-col">
+      {/* Loading progress bar - fixed at top of PDF viewer */}
+      {isStillLoading && (
+        <div className="sticky top-0 z-20 bg-white dark:bg-gray-800 p-4 shadow-md">
+          <div className="flex items-center gap-4">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${loadingProgress}%` }}
+                />
+              </div>
             </div>
+            <span className="text-sm font-medium text-gray-600 dark:text-gray-300 flex-shrink-0">
+              {loadedPages} / {numPages} pages
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Initial document loading state */}
+      {!documentLoaded && (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+          <span className="text-base text-gray-500">Loading PDF document...</span>
+          <span className="text-xs text-gray-400">Large files may take a moment</span>
+        </div>
+      )}
+
+      <Document
+        file={url}
+        onLoadSuccess={handleDocumentLoadSuccess}
+        onLoadError={handleDocumentLoadError}
+        loading={null} // We handle loading ourselves above
+      >
+        {documentLoaded && (
+          <div className="flex flex-col items-center gap-8 py-6 px-4">
+            {Array.from({ length: numPages }, (_, i) => {
+              const pageNumber = i + 1
+              const status = pageStatuses[pageNumber]
+              const isPageLoading = !status?.loaded && !status?.error
+
+              return (
+                <div
+                  key={pageNumber}
+                  className="relative"
+                  style={{
+                    width: pageWidth,
+                    minHeight: Math.round(pageWidth * 1.3)
+                  }}
+                >
+                  {/* Page container with shadow */}
+                  <div className="bg-white shadow-xl rounded overflow-hidden">
+                    {/* Page loading placeholder */}
+                    {isPageLoading && (
+                      <div
+                        className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10"
+                        style={{
+                          width: pageWidth,
+                          height: Math.round(pageWidth * 1.3)
+                        }}
+                      >
+                        <Loader2 className="h-8 w-8 animate-spin text-gray-400 mb-3" />
+                        <span className="text-sm text-gray-500 font-medium">Loading page {pageNumber}</span>
+                        <span className="text-xs text-gray-400 mt-1">of {numPages}</span>
+                      </div>
+                    )}
+
+                    {/* Error state */}
+                    {status?.error && (
+                      <div
+                        className="flex flex-col items-center justify-center bg-gray-100"
+                        style={{
+                          width: pageWidth,
+                          height: Math.round(pageWidth * 1.3)
+                        }}
+                      >
+                        <FileText className="h-8 w-8 text-gray-300 mb-2" />
+                        <span className="text-sm text-gray-500">Failed to load page {pageNumber}</span>
+                      </div>
+                    )}
+
+                    <Page
+                      pageNumber={pageNumber}
+                      width={pageWidth}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
+                      onLoadSuccess={() => handlePageLoadSuccess(pageNumber)}
+                      onLoadError={(error) => handlePageLoadError(pageNumber, error)}
+                      loading={null}
+                    />
+                  </div>
+
+                  {/* Page number indicator */}
+                  <div className="text-center mt-2">
+                    <span className="text-xs text-gray-400">Page {pageNumber}</span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
-
-        <Document
-          file={src}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-          loading={null}
-          className="flex justify-center"
-        >
-          <Page
-            pageNumber={currentPage}
-            scale={scale}
-            onLoadSuccess={onPageLoadSuccess}
-            loading={null}
-            renderTextLayer={false}
-            renderAnnotationLayer={false}
-            className="shadow-lg"
-          />
-        </Document>
-      </div>
-
-      {/* Page Navigation */}
-      {numPages && numPages > 1 && (
-        <div className="flex items-center gap-4 mt-4 bg-black/50 text-white px-4 py-2 rounded-full">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0 hover:bg-white/20 text-white disabled:opacity-50"
-            onClick={goToPrevPage}
-            disabled={currentPage <= 1}
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
-
-          <span className="text-sm font-medium min-w-[80px] text-center">
-            {currentPage} of {numPages}
-          </span>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0 hover:bg-white/20 text-white disabled:opacity-50"
-            onClick={goToNextPage}
-            disabled={currentPage >= numPages}
-          >
-            <ChevronRight className="h-5 w-5" />
-          </Button>
-        </div>
-      )}
-
-      {/* PDF indicator pill */}
-      {numPages && (
-        <div className="mt-2 px-3 py-1 bg-red-500/80 text-white text-xs font-medium rounded-full flex items-center gap-1">
-          <FileText className="h-3 w-3" />
-          PDF
-        </div>
-      )}
+      </Document>
     </div>
   )
 }

@@ -8,25 +8,18 @@ import { useFilter } from '@/components/app-sidebar'
 import { useSidebar } from '@/components/ui/sidebar'
 import { ImageLightbox } from '@/components/image-lightbox'
 import { MetadataEditor } from '@/components/metadata-editor'
-import { Check, Play, FileText } from 'lucide-react'
+import { Check, Play } from 'lucide-react'
 import type { ImageMetadata } from '@/types'
 
 // Utility function to get thumbnail path - memoized
 const getThumbnailPath = (imagePath: string): string => {
   // Convert assets/folder/image.jpg -> assets-thumbs/folder/image.jpg
   // For videos, use .webp extension for animated thumbnails
-  // For PDFs, use .jpg extension for thumbnail
   const pathWithoutExt = imagePath.replace(/\.[^/.]+$/, '')
   const isVideo = /\.(mp4|mov|webm|avi)$/i.test(imagePath)
-  const isPdf = /\.pdf$/i.test(imagePath)
   const ext = isVideo ? '.webp' : '.jpg'
   const thumbnailPath = pathWithoutExt.replace(/^assets\//, 'assets-thumbs/') + ext
   return `/${thumbnailPath}`
-}
-
-// Check if file is a PDF
-const isPdfFile = (imagePath: string): boolean => {
-  return /\.pdf$/i.test(imagePath)
 }
 
 // Memoized image grid item component
@@ -39,6 +32,7 @@ interface ImageGridItemProps {
 
 const ImageGridItem = memo(({ image, isSelected, onToggleSelect, onOpenLightbox }: ImageGridItemProps) => {
   const thumbnailPath = useMemo(() => getThumbnailPath(image.path), [image.path])
+  const isPdf = image.isPdf || /\.pdf$/i.test(image.path)
 
   const gridItemClassName = useMemo(() =>
     `group relative cursor-pointer rounded-xl overflow-hidden transition-all ${
@@ -84,31 +78,48 @@ const ImageGridItem = memo(({ image, isSelected, onToggleSelect, onOpenLightbox 
       </div>
 
       <div className="aspect-square bg-gray-100 dark:bg-gray-900 rounded-xl relative">
-        <img
-          src={thumbnailPath}
-          alt={image.subject || fileName}
-          className="w-full h-full object-cover rounded-xl"
-          loading="lazy"
-          onError={(e) => {
-            // Fallback to original image if thumbnail fails to load
-            e.currentTarget.src = `/${image.path}`
-          }}
-        />
-        {/* Video play icon overlay */}
-        {image.isVideo && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="bg-black dark:bg-white rounded-lg p-3">
-              <Play className="h-6 w-6 text-white dark:text-black fill-white dark:fill-black" />
+        {isPdf ? (
+          // Document well container for PDFs
+          <div className="absolute inset-0 flex flex-col pt-3 px-3 bg-gray-200 dark:bg-gray-800 rounded-xl">
+            <div className="relative flex-1 bg-white dark:bg-gray-900 rounded-t-lg shadow-md flex items-center justify-center p-2">
+              <img
+                src={thumbnailPath}
+                alt={fileName}
+                className="max-w-full max-h-full object-contain"
+                loading="lazy"
+                onError={(e) => {
+                  // Hide the image on error
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
+            </div>
+            {/* PDF pill badge - on the gray well */}
+            <div className="absolute bottom-2 right-2 bg-red-600 rounded-full px-2 py-0.5">
+              <span className="text-white text-xs font-bold">PDF</span>
             </div>
           </div>
-        )}
-        {/* PDF icon overlay */}
-        {(image.isPdf || isPdfFile(image.path)) && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="bg-red-500 rounded-lg p-3">
-              <FileText className="h-6 w-6 text-white" />
-            </div>
-          </div>
+        ) : (
+          // Regular image/video thumbnail
+          <>
+            <img
+              src={thumbnailPath}
+              alt={image.subject || fileName}
+              className="w-full h-full object-cover rounded-xl"
+              loading="lazy"
+              onError={(e) => {
+                // Fallback to original image if thumbnail fails to load
+                e.currentTarget.src = `/${image.path}`
+              }}
+            />
+            {/* Video play icon overlay */}
+            {image.isVideo && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="bg-black dark:bg-white rounded-lg p-3">
+                  <Play className="h-6 w-6 text-white dark:text-black fill-white dark:fill-black" />
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
@@ -329,7 +340,7 @@ export default function LibraryPage() {
 
   return (
     <>
-      <div className="grid grid-cols-2 auto-rows-min gap-4 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid auto-rows-min gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {filteredImages.map((image) => (
           <ImageGridItem
             key={image.path}
