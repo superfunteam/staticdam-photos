@@ -15,7 +15,7 @@ A Git-native Digital Asset Management system with EXIF-only metadata storage.
 
 ```
 GitHub Repo → Netlify Deploy
-├─ /assets/**        # Original images with embedded metadata
+├─ /assets/**        # Original images and videos with embedded metadata
 ├─ /data/manifest    # Generated index (cache)
 ├─ /site             # React frontend
 └─ /netlify/functions # API endpoints
