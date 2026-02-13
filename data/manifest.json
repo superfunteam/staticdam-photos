@@ -692,6 +692,30 @@
     "bytes": 8422508
   },
   {
+    "path": "assets/Video/aramark-short-demonstrating-economic-impact-web.mp4",
+    "w": 0,
+    "h": 0,
+    "bytes": 3923524,
+    "isVideo": true,
+    "duration": 42.4
+  },
+  {
+    "path": "assets/Video/aramark-short-finding-suppliers-web.mp4",
+    "w": 0,
+    "h": 0,
+    "bytes": 4298405,
+    "isVideo": true,
+    "duration": 51.7
+  },
+  {
+    "path": "assets/Video/aramark-supplier-final-web.mp4",
+    "w": 0,
+    "h": 0,
+    "bytes": 12262332,
+    "isVideo": true,
+    "duration": 63.638
+  },
+  {
     "path": "assets/Video/supplier-brand-final.mp4",
     "w": 0,
     "h": 0,
